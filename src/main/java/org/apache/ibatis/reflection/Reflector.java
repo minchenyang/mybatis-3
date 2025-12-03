@@ -54,36 +54,78 @@ import org.apache.ibatis.reflection.property.PropertyNamer;
 public class Reflector {
 
   private static final MethodHandle isRecordMethodHandle = getIsRecordMethodHandle();
-  private final Type type;
-  private final Class<?> clazz;
-  private final String[] readablePropertyNames;
-  private final String[] writablePropertyNames;
-  private final Map<String, Invoker> setMethods = new HashMap<>();
-  private final Map<String, Invoker> getMethods = new HashMap<>();
-  private final Map<String, Entry<Type, Class<?>>> setTypes = new HashMap<>();
-  private final Map<String, Entry<Type, Class<?>>> getTypes = new HashMap<>();
-  private Constructor<?> defaultConstructor;
 
+  /**
+   * 保存泛型信息
+   */
+  private final Type type;
+  /**
+   * 对应的class ( 没有泛型信息 )
+   */
+  private final Class<?> clazz;
+  /**
+   * 可读属性数组
+   */
+  private final String[] readablePropertyNames;
+  /**
+   * 可写属性集合
+   */
+  private final String[] writablePropertyNames;
+  /**
+   * 属性对应的 setting 方法的映射。 key 为属性名称 value 为 Invoker 对象
+   */
+  private final Map<String, Invoker> setMethods = new HashMap<>();
+  /**
+   * 属性对应的 getting 方法的映射。 key 为属性名称 value 为 Invoker 对象
+   */
+  private final Map<String, Invoker> getMethods = new HashMap<>();
+  /**
+   * 属性对应的 setting 方法的方法参数类型的映射。{@link #setMethods} key 为属性名称 value 为方法参数类型
+   */
+  private final Map<String, Entry<Type, Class<?>>> setTypes = new HashMap<>();
+  /**
+   * 属性对应的 getting 方法的返回值类型的映射。{@link #getMethods} key 为属性名称 value 为返回值的类型
+   */
+  private final Map<String, Entry<Type, Class<?>>> getTypes = new HashMap<>();
+  /**
+   * 类的无参构造方法
+   */
+  private Constructor<?> defaultConstructor;
+  /**
+   * 不区分大小写的属性集合
+   */
   private final Map<String, String> caseInsensitivePropertyMap = new HashMap<>();
 
   private static final Entry<Type, Class<?>> nullEntry = new AbstractMap.SimpleImmutableEntry<>(null, null);
 
   public Reflector(Type type) {
+    // 保存泛型
     this.type = type;
+    // 保存class
     if (type instanceof ParameterizedType) {
       this.clazz = (Class<?>) ((ParameterizedType) type).getRawType();
     } else {
       this.clazz = (Class<?>) type;
     }
+    // 查找类的无参构造器，保存到 defaultConstructor 字段
     addDefaultConstructor(clazz);
+
+    // 遍历整个继承链收集所有方法, 通过方法签名去重（子类重写的方法会覆盖父类的）
     Method[] classMethods = getClassMethods(clazz);
+
+    // 判断java 14 record 写法-- 不管忽略
     if (isRecord(clazz)) {
       addRecordGetMethods(classMethods);
     } else {
+      // 初始化 getMethods 和 getTypes ，通过遍历 getting 方法
       addGetMethods(classMethods);
+      // 初始化 setMethods 和 setTypes ，通过遍历 setting 方法
       addSetMethods(classMethods);
+      // 初始化 getMethods + getTypes 和 setMethods + setTypes ，通过遍历 fields 属性
       addFields(clazz);
     }
+    // 初始化 readablePropertyNames、writeablePropertyNames、caseInsensitivePropertyMap 属性
+    // 构建不区分大小写的属性集合
     readablePropertyNames = getMethods.keySet().toArray(new String[0]);
     writablePropertyNames = setMethods.keySet().toArray(new String[0]);
     for (String propName : readablePropertyNames) {
